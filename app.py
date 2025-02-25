@@ -7,9 +7,9 @@ import sqlite3
 from typing import List
 from fastapi import Request
 from scrapr import run_scraper
+from move_delayed_leads import move_delayed_leads
 # Initialize FastAPI app
 app = FastAPI()
-
 
 # Enable CORS Middleware
 app.add_middleware(
@@ -60,6 +60,16 @@ def fetch_data_from_db(query: str, params: tuple = ()) -> List[dict]:
     return [dict(zip(columns, row)) for row in rows]
 
 
+
+#move delayed leads logic goes here
+@app.get("/move_delayed_leads")
+def trigger_move_delayed_leads():
+    try:
+        result = move_delayed_leads()
+        return result
+    except Exception as e:
+        return {"error": f"An error occurred: {e}"}
+    
 
 # Endpoint to trigger the scraper
 @app.get("/start_scraper/")

@@ -46,30 +46,20 @@ class DelayedLead(BaseModel):
     website_name: str
     expired: bool
 
+
 # Function to fetch data from the database
-def fetch_data_from_db(query: str, params: tuple = ()) -> List[tuple]:
+def fetch_data_from_db(query: str, params: tuple = ()) -> List[dict]:
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute(query, params)
+    columns = [column[0] for column in cursor.description]
     rows = cursor.fetchall()
     conn.close()
-    return rows
 
-# Function to generate an HTML table
-def generate_html_table(headers: List[str], rows: List[tuple]) -> str:
-    table_html = "<table border='1'><tr>"
-    for header in headers:
-        table_html += f"<th>{header}</th>"
-    table_html += "</tr>"
-    
-    for row in rows:
-        table_html += "<tr>"
-        for cell in row:
-            table_html += f"<td>{cell}</td>"
-        table_html += "</tr>"
-    
-    table_html += "</table>"
-    return table_html
+    # Convert rows into list of dictionaries
+    return [dict(zip(columns, row)) for row in rows]
+
+
 
 # Endpoint to trigger the scraper
 @app.get("/start_scraper/")
@@ -77,47 +67,31 @@ async def start_scraper(background_tasks: BackgroundTasks):
     background_tasks.add_task(run_scraper)
     return {"message": "Scraper has started!"}
 
-# Get all properties
-@app.get("/properties", response_class=HTMLResponse)
+# Get all properties in JSON format
+@app.get("/properties")
 async def get_properties():
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM properties")
-    rows = cursor.fetchall()
-    headers = [column[0] for column in cursor.description]
-    conn.close()
-    
-    # Generate the HTML table with the rows and headers
-    table_html = generate_html_table(headers, rows)
-    return table_html
+    query = "SELECT * FROM properties"
+    properties = fetch_data_from_db(query)
+    return properties
 
-# Get all leads
-@app.get("/leads", response_class=HTMLResponse)
+# Get all leads in JSON format
+@app.get("/leads")
 async def get_leads():
     query = "SELECT phone_number FROM leads"
-    rows = fetch_data_from_db(query)
-    headers = ["Phone Number"]
-    
-    # Generate the HTML table
-    table_html = generate_html_table(headers, rows)
-    return table_html
+    leads = fetch_data_from_db(query)
+    return leads
 
-# Get all delayed leads
-@app.get("/delayed_leads", response_class=HTMLResponse)
+# Get all delayed leads in JSON format
+@app.get("/delayed_leads")
 async def get_delayed_leads():
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM delayed_leads")
-    rows = cursor.fetchall()
-    headers = [column[0] for column in cursor.description]
-    conn.close()
-    
-    # Generate the HTML table
-    table_html = generate_html_table(headers, rows)
-    return table_html
+    query = "SELECT * FROM delayed_leads"
+    delayed_leads = fetch_data_from_db(query)
+    return delayed_leads
 
 # Run FastAPI using Uvicorn (run this via command line in your terminal)
 # uvicorn app:app --reload
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="127.0.0.1", port=8000)
+
+

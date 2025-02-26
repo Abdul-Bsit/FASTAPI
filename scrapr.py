@@ -1,15 +1,23 @@
-import sqlite3
 import requests
 from bs4 import BeautifulSoup
 import random
 import time
 from fake_useragent import UserAgent
 import re
+from pymongo import MongoClient
+from datetime import datetime, timedelta
+
+# MongoDB Atlas connection
+MONGO_URI = "mongodb+srv://abdullbasit7446:3JiTkQl8ErTFOiP2@seloger1.5hxkg.mongodb.net/?retryWrites=true&w=majority&appName=seloger1"
+client = MongoClient(MONGO_URI)
+db = client["seloger_db"]
+properties_collection = db["properties"]
+leads_collection = db["leads"]
+delayed_leads_collection = db["delayed_leads"]
 
 # Define base URLs
 BASE_URL = "https://www.seloger-construire.com"
 LISTING_URL = f"{BASE_URL}/projet-construction/maison-terrain/pays/france"
-DB_FILE = "seloger_properties.db"  # SQLite database file
 
 # Proxy list (Rotating Proxies)
 PROXY_LIST = [
@@ -31,52 +39,6 @@ def get_headers():
 # Function to get a random proxy
 def get_proxy():
     return {"http": random.choice(PROXY_LIST), "https": random.choice(PROXY_LIST)}
-
-# Create SQLite database and tables
-def create_db():
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS properties (
-        property_id TEXT PRIMARY KEY,
-        phone_number TEXT,
-        image_url TEXT,
-        description TEXT,
-        address TEXT,
-        price TEXT,
-        website_name TEXT,
-        expired BOOLEAN
-    )
-    """)
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS leads (
-        phone_number TEXT PRIMARY KEY
-    )
-    """)
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS delayed_leads (
-        phone_number TEXT PRIMARY KEY,
-        property_id TEXT,
-        image_url TEXT,
-        description TEXT,
-        address TEXT,
-        price TEXT,
-        website_name TEXT,
-        expired BOOLEAN,
-        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-    """)
-    conn.commit()
-    conn.close()
-
-# Load existing property IDs to avoid duplicates
-def load_existing_property_ids():
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("SELECT property_id FROM properties")
-    existing_ids = {row[0] for row in cursor.fetchall()}
-    conn.close()
-    return existing_ids
 
 # Extract property ID from URL
 def extract_property_id(detail_url):
@@ -120,61 +82,38 @@ def scrape_detail_page(detail_url):
 
 # Save a single lead to the database immediately
 def save_lead(property_data):
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
+    """Automatically saves the lead when the scraper finds a new one."""
     try:
         phone_number = property_data["phone_number"]
+
+        # Check existing leads in delayed_leads
+        existing_delayed_leads = list(delayed_leads_collection.find({"phone_number": phone_number}))
+        count = len(existing_delayed_leads) + 1  # Start at 1 instead of 0
         
-        # Check if phone number is new
-        cursor.execute("SELECT phone_number FROM leads WHERE phone_number = ?", (phone_number,))
-        if not cursor.fetchone():
+        # Apply exponential delay in hours
+        delay_hours = 24 * (2 ** (count - 1))  # 1st time = 24h, 2nd time = 48h, 3rd time = 96h
+        expiration_date = datetime.now() + timedelta(hours=delay_hours)
+        property_data["expiration_date"] = expiration_date
+
+        # If phone number is NOT in leads, save in properties
+        existing_lead = leads_collection.find_one({"phone_number": phone_number})
+        
+        if not existing_lead:
             # Insert into leads and properties
-            cursor.execute("INSERT INTO leads (phone_number) VALUES (?)", (phone_number,))
-            cursor.execute("""
-            INSERT INTO properties 
-            (property_id, phone_number, image_url, description, address, price, website_name, expired)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                property_data["property_id"],
-                phone_number,
-                property_data["image_url"],
-                property_data["description"],
-                property_data["address"],
-                property_data["price"],
-                property_data["website_name"],
-                property_data["expired"]
-            ))
+            leads_collection.insert_one({"phone_number": phone_number, "expiration_date": expiration_date})
+            properties_collection.insert_one(property_data)
             print(f"✅ New lead saved: {phone_number}")
+            
         else:
-            # Insert into delayed_leads
-            cursor.execute("""
-            INSERT INTO delayed_leads 
-            (phone_number, property_id, image_url, description, address, price, website_name, expired)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                phone_number,
-                property_data["property_id"],
-                property_data["image_url"],
-                property_data["description"],
-                property_data["address"],
-                property_data["price"],
-                property_data["website_name"],
-                property_data["expired"]
-            ))
-            print(f"⚠️ Existing lead moved to delayed: {phone_number}")
-        
-        conn.commit()
-    except sqlite3.IntegrityError:
-        print(f"⚠️ Skipped duplicate property: {property_data['property_id']}")
+            # Move duplicate to delayed_leads
+            delayed_leads_collection.insert_one(property_data)
+            print(f"⚠️ Existing lead moved to delayed for {delay_hours} hours: {phone_number}")
+
     except Exception as e:
         print(f"❌ Database error: {e}")
-    finally:
-        conn.close()
-
 # Main scraping logic
 def scrape_all_pages():
-    create_db()
-    existing_ids = load_existing_property_ids()
+    existing_ids = {prop['property_id'] for prop in properties_collection.find({}, {'property_id': 1})}
     current_url = LISTING_URL
     page_number = 1
     leads_count = 0
@@ -193,7 +132,7 @@ def scrape_all_pages():
             for listing in listings:
                 if leads_count >= max_leads:
                     print("🎯 Reached 600 leads. Stopping.")
-                    return
+                    return {"status": "success", "message": "Reached 600 leads"}
                 
                 detail_link = listing.get('href')
                 if not detail_link:
@@ -228,11 +167,4 @@ def scrape_all_pages():
             current_url = f"{LISTING_URL}?page={page_number}"  # Adjust URL for next page
             continue
 
-    print(f"\n🏁 Total leads scraped: {leads_count}")
-
-def run_scraper():
- 
-    scrape_all_pages()  # Scrape and save all properties
-   
-if __name__ == "__main__":
-    run_scraper()
+    return {"status": "success", "message": f"Total leads scraped: {leads_count}"}

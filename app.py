@@ -1,107 +1,59 @@
-from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
-from fastapi import FastAPI, Query, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks
+from scraper import scrape_all_pages
 from fastapi.middleware.cors import CORSMiddleware
-import sqlite3
-from typing import List
-from fastapi import Request
-from scrapr import run_scraper
-from move_delayed_leads import move_delayed_leads
-# Initialize FastAPI app
+from pymongo import MongoClient
+from datetime import datetime
+from typing import List, Dict
+from pydantic import BaseModel
+import os
+
 app = FastAPI()
 
-# Enable CORS Middleware
+# Enable CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Change to a specific domain if needed
-    allow_credentials=True,
-    allow_methods=["*"],  # Allows all methods (GET, POST, etc.)
-    allow_headers=["*"],  # Allows all headers
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
-# SQLite database file
-DB_FILE = "seloger_properties.db"
 
-# Pydantic models to format the data from the database
-class Property(BaseModel):
-    property_id: str
-    phone_number: str
-    image_url: str
-    description: str
-    address: str
-    price: str
-    website_name: str
-    expired: bool
+# MongoDB Atlas connection
+MONGO_URI = os.getenv("MONGO_URI", "your-default-mongo-uri")
+client = MongoClient(MONGO_URI)
+db = client["seloger_db"]
+properties_collection = db["properties"]
+leads_collection = db["leads"]
+delayed_leads_collection = db["delayed_leads"]
 
-class Lead(BaseModel):
-    phone_number: str
+# FastAPI Endpoints
+@app.post("/start-scraping")
+async def start_scraping(background_tasks: BackgroundTasks):
+    """Start the scraping process in the background."""
+    background_tasks.add_task(scrape_all_pages)
+    return {"status": "started", "message": "Scraping started in the background."}
 
-class DelayedLead(BaseModel):
-    phone_number: str
-    property_id: str
-    image_url: str
-    description: str
-    address: str
-    price: str
-    website_name: str
-    expired: bool
+@app.get("/scraping-status")
+async def scraping_status():
+    """Check the status of the scraping process."""
+    leads_count = properties_collection.count_documents({})
+    return {"status": "success", "leads_count": leads_count}
 
-
-# Function to fetch data from the database
-def fetch_data_from_db(query: str, params: tuple = ()) -> List[dict]:
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute(query, params)
-    columns = [column[0] for column in cursor.description]
-    rows = cursor.fetchall()
-    conn.close()
-
-    # Convert rows into list of dictionaries
-    return [dict(zip(columns, row)) for row in rows]
-
-
-
-#move delayed leads logic goes here
-@app.get("/move_delayed_leads")
-def trigger_move_delayed_leads():
-    try:
-        result = move_delayed_leads()
-        return result
-    except Exception as e:
-        return {"error": f"An error occurred: {e}"}
-    
-
-# Endpoint to trigger the scraper
-@app.get("/start_scraper/")
-async def start_scraper(background_tasks: BackgroundTasks):
-    background_tasks.add_task(run_scraper)
-    return {"message": "Scraper has started!"}
-
-# Get all properties in JSON format
-@app.get("/properties")
-async def get_properties():
-    query = "SELECT * FROM properties"
-    properties = fetch_data_from_db(query)
-    return properties
-
-# Get all leads in JSON format
 @app.get("/leads")
 async def get_leads():
-    query = "SELECT phone_number FROM leads"
-    leads = fetch_data_from_db(query)
+    """Retrieve all scraped leads."""
+    leads = list(properties_collection.find({}, {"_id": 0}))
+    return {"status": "success", "leads": leads}
+
+@app.get("/delayed-leads")
+async def get_delayed_leads():
+    """Retrieve all delayed leads."""
+    delayed_leads = list(delayed_leads_collection.find({}, {"_id": 0}))
+    return {"status": "success", "delayed_leads": delayed_leads}
+
+@app.get("/today-leads", response_model=List[Dict])
+def get_today_leads():
+    today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    leads = list(properties_collection.find({"expiration_date": {"$gte": today}}, {"_id": 0}))
     return leads
 
-# Get all delayed leads in JSON format
-@app.get("/delayed_leads")
-async def get_delayed_leads():
-    query = "SELECT * FROM delayed_leads"
-    delayed_leads = fetch_data_from_db(query)
-    return delayed_leads
-
-# Run FastAPI using Uvicorn (run this via command line in your terminal)
-# uvicorn app:app --reload
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8000)
-
-
+# Vercel automatically handles execution, so no need for uvicorn.run()

@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web Scraper Interface</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f8f8f8;
+            text-align: center;
+        }
+        .container {
+            margin: 50px auto;
+            padding: 20px;
+            max-width: 900px;
+            background-color: white;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            border-radius: 10px;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 10px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        input[type="number"] {
+            padding: 8px;
+            margin: 10px;
+            width: 100px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            padding: 10px;
+            border: 1px solid #ddd;
+        }
+        th {
+            background-color: #007bff;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Web Scraper Interface</h1>
+
+        <button onclick="startScraping()">Start Scraping</button>
+        <button onclick="getResults()">Get Scraped Results</button>
+        <button onclick="loadCSV()">Fetch CSV Results</button>
+
+        <div>
+            <input type="number" id="filterCount" placeholder="How many rows?">
+            <button onclick="filterFresh()">Filter Fresh Rows</button>
+        </div>
+
+        <div id="downloadSection" style="display:none;">
+            <button onclick="downloadFiltered()">Download Filtered CSV</button>
+        </div>
+
+        <p id="status"></p>
+        <div id="results"></div>
+    </div>
+
+    <script>
+        let filteredData = [];
+
+        async function startScraping() {
+            document.getElementById("status").innerText = "Starting scraping...";
+            const response = await fetch("/scrape/");
+            const data = await response.json();
+            document.getElementById("status").innerText = data.status;
+        }
+
+        async function getResults() {
+            document.getElementById("status").innerText = "Fetching results...";
+            const response = await fetch("/");
+            const html = await response.text();
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, "text/html");
+            const data = doc.querySelector("body").innerText;
+            displayResults(JSON.parse(data));
+        }
+
+        async function loadCSV() {
+            document.getElementById("status").innerText = "Loading CSV data...";
+            const response = await fetch("/load_csv/");
+            const data = await response.json();
+            if (data.error) {
+                document.getElementById("status").innerText = `Error: ${data.error}`;
+                return;
+            }
+            displayResults(data);
+            document.getElementById("status").innerText = "CSV data loaded successfully.";
+        }
+
+        async function filterFresh() {
+            const count = document.getElementById("filterCount").value;
+            if (!count || count <= 0) {
+                alert("Please enter a valid number of rows to filter.");
+                return;
+            }
+
+            document.getElementById("status").innerText = `Filtering ${count} fresh rows...`;
+            const response = await fetch(`/filter_fresh/?count=${count}`);
+            const data = await response.json();
+
+            if (data.error) {
+                document.getElementById("status").innerText = `Error: ${data.error}`;
+                return;
+            }
+
+            filteredData = data;
+            displayResults(filteredData);
+            document.getElementById("status").innerText = "Filtered fresh rows successfully.";
+            document.getElementById("downloadSection").style.display = "block";
+        }
+
+        async function downloadFiltered() {
+            if (filteredData.length === 0) {
+                alert("No filtered data to download.");
+                return;
+            }
+
+            const response = await fetch("/download_filtered/");
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "Filtered_Fresh_Rows.csv";
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+
+            document.getElementById("status").innerText = "Filtered rows downloaded and updated to 'CALLED'.";
+            document.getElementById("downloadSection").style.display = "none";
+        }
+
+        function displayResults(data) {
+            const resultsDiv = document.getElementById("results");
+            resultsDiv.innerHTML = "";
+            if (data.length === 0) {
+                resultsDiv.innerHTML = "<p>No data available yet. Please wait.</p>";
+                return;
+            }
+            let table = `<table><thead><tr>`;
+            Object.keys(data[0]).forEach(key => {
+                table += `<th>${key}</th>`;
+            });
+            table += `</tr></thead><tbody>`;
+            data.forEach(row => {
+                table += `<tr>`;
+                Object.values(row).forEach(value => {
+                    table += `<td>${value}</td>`;
+                });
+                table += `</tr>`;
+            });
+            table += `</tbody></table>`;
+            resultsDiv.innerHTML = table;
+        }
+    </script>
+</body>
+</html>

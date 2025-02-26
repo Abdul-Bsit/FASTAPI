@@ -26,7 +26,7 @@ leads_collection = db["leads"]
 delayed_leads_collection = db["delayed_leads"]
 
 # FastAPI Endpoints
-@app.post("/start-scraping")
+@app.get("/start-scraping")
 async def start_scraping(background_tasks: BackgroundTasks):
     """Start the scraping process in the background."""
     background_tasks.add_task(scrape_all_pages)

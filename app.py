@@ -20,9 +20,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+MONGO_URI = os.getenv("MONGO_URI" ,"mongodb+srv://abdullbasit7446:3JiTkQl8ErTFOiP2@seloger1.5hxkg.mongodb.net/?retryWrites=true&w=majority&appName=seloger1"")
 
-# MongoDB Atlas connection
-MONGO_URI = "mongodb+srv://abdullbasit7446:3JiTkQl8ErTFOiP2@seloger1.5hxkg.mongodb.net/?retryWrites=true&w=majority&appName=seloger1"
+
 client = MongoClient(MONGO_URI)
 db = client["seloger_db"]
 properties_collection = db["properties"]

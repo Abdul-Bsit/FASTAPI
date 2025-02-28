@@ -1,3 +1,4 @@
+concurrent.futures
 annotated-types==0.7.0
 anyio==4.8.0
 beautifulsoup4==4.13.3

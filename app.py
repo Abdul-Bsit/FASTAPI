@@ -136,5 +136,5 @@ async def remove_expired_leads_endpoint():
     return {"status": "processing"}
 
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    port = int(os.environ.get("PORT", 8000))  # Koyeb provides the PORT env variable
+    uvicorn.run(app, host="0.0.0.0", port=port)

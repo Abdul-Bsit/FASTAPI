@@ -145,9 +145,16 @@ def save_lead(property_data):
     except Exception as e:
         print(f"❌ Database error: {e}")
 
+import concurrent.futures
 
+# Adjusted function to scrape details in parallel
+def scrape_detail_pages_parallel(detail_urls):
+    """Scrapes multiple property detail pages in parallel using threads."""
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:  # Adjust max_workers as needed
+        results = list(executor.map(scrape_detail_page, detail_urls))
+    return results
 
-# Main scraping logic
+# Main scraping logic with threading for detail pages
 def scrape_all_pages():
     existing_ids = {prop['property_id'] for prop in properties_collection.find({}, {'property_id': 1})}
     current_url = LISTING_URL
@@ -165,6 +172,8 @@ def scrape_all_pages():
             
             # Extract all property links on the page
             listings = soup.find_all('a', class_='AnnounceCard_announceCardSlider__CaJaL')
+            detail_urls = []
+
             for listing in listings:
                 if leads_count >= max_leads:
                     print("🎯 Reached 600 leads. Stopping.")
@@ -178,10 +187,15 @@ def scrape_all_pages():
                 property_id = extract_property_id(detail_url)
                 
                 if property_id not in existing_ids:
-                    property_data = scrape_detail_page(detail_url)
+                    detail_urls.append(detail_url)
+                    existing_ids.add(property_id)
+
+            # Process multiple property detail pages in parallel
+            if detail_urls:
+                results = scrape_detail_pages_parallel(detail_urls)
+                for property_data in results:
                     if property_data:
                         save_lead(property_data)
-                        existing_ids.add(property_id)
                         leads_count += 1
                         print(f"🔄 Leads processed: {leads_count}/{max_leads}")
                         time.sleep(random.uniform(1, 3))  # Respectful delay
@@ -193,7 +207,6 @@ def scrape_all_pages():
             
         except requests.exceptions.RequestException as e:
             print(f"❌ Page {page_number} failed: {e}. Moving to the next page.")
-            # Skip to the next page
             page_number += 1
             current_url = f"{LISTING_URL}?page={page_number}"  # Adjust URL for next page
             continue

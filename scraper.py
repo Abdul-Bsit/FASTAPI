@@ -6,7 +6,7 @@ from fake_useragent import UserAgent
 import re
 from pymongo import MongoClient
 from datetime import datetime, timedelta, timezone
-
+import os
 
 MONGO_URI = os.getenv("MONGO_URI")  # Load from environment variable
 client = MongoClient(MONGO_URI)

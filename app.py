@@ -10,29 +10,13 @@ from contextlib import asynccontextmanager
 import os
 from bson import ObjectId
 
-# MongoDB Connection URI (Use environment variable for security)
-MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://abdullbasit7446:3JiTkQl8ErTFOiP2@seloger1.5hxkg.mongodb.net/?retryWrites=true&w=majority&appName=seloger1")
 
-# Global variables for MongoDB collections
-client = None
-db = None
-properties_collection = None
-leads_collection = None
-delayed_leads_collection = None
-
-# Use FastAPI lifespan to manage MongoDB connection
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    global client, db, properties_collection, leads_collection, delayed_leads_collection
-    print("🔌 Connecting to MongoDB...")
-    client = MongoClient(MONGO_URI)
-    db = client["seloger_db"]
-    properties_collection = db["properties"]
-    leads_collection = db["leads"]
-    delayed_leads_collection = db["delayed_leads"]
-    yield  # App runs while this context is active
-    print("❌ Closing MongoDB connection...")
-    client.close()
+MONGO_URI = os.getenv("MONGO_URI")  # Load from environment variable
+client = MongoClient(MONGO_URI)
+db = client["seloger_db"]
+properties_collection = db["properties"]
+leads_collection = db["leads"]
+delayed_leads_collection = db["delayed_leads"]
 
 app = FastAPI(lifespan=lifespan)
 

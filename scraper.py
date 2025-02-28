@@ -8,7 +8,7 @@ from pymongo import MongoClient
 from datetime import datetime, timedelta, timezone
 
 # MongoDB Atlas connection
-MONGO_URI = "mongodb+srv://abdullbasit7446:3JiTkQl8ErTFOiP2@seloger1.5hxkg.mongodb.net/?retryWrites=true&w=majority&appName=seloger1"
+os.getenv("MONGO_URI", "mongodb+srv://abdullbasit7446:3JiTkQl8ErTFOiP2@seloger1.5hxkg.mongodb.net/?retryWrites=true&w=majority&appName=seloger1")
 client = MongoClient(MONGO_URI)
 db = client["seloger_db"]
 properties_collection = db["properties"]

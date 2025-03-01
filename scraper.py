@@ -154,15 +154,17 @@ def scrape_detail_pages_parallel(detail_urls):
         results = list(executor.map(scrape_detail_page, detail_urls))
     return results
 
-# Main scraping logic with threading for detail pages
+
+# Main scraping logic
 def scrape_all_pages():
     existing_ids = {prop['property_id'] for prop in properties_collection.find({}, {'property_id': 1})}
     current_url = LISTING_URL
     page_number = 1
     leads_count = 0
     max_leads = 600
+    max_retries = 3  # Retry scraper if pages are not available
 
-    while current_url and leads_count < max_leads:
+    while leads_count < max_leads:
         print(f"\n📄 Processing Page {page_number}: {current_url}")
         
         try:
@@ -172,7 +174,14 @@ def scrape_all_pages():
             
             # Extract all property links on the page
             listings = soup.find_all('a', class_='AnnounceCard_announceCardSlider__CaJaL')
-            detail_urls = []
+            if not listings:
+                print("⚠️ No listings found. Retrying or restarting scraper...")
+                max_retries -= 1
+                if max_retries == 0:
+                    print("🔄 Restarting scraper due to no available pages...")
+                    return scrape_all_pages()  # Restart the scraper
+                time.sleep(5)  # Wait before retrying
+                continue
 
             for listing in listings:
                 if leads_count >= max_leads:
@@ -187,24 +196,23 @@ def scrape_all_pages():
                 property_id = extract_property_id(detail_url)
                 
                 if property_id not in existing_ids:
-                    detail_urls.append(detail_url)
-                    existing_ids.add(property_id)
-
-            # Process multiple property detail pages in parallel
-            if detail_urls:
-                results = scrape_detail_pages_parallel(detail_urls)
-                for property_data in results:
+                    property_data = scrape_detail_page(detail_url)
                     if property_data:
                         save_lead(property_data)
+                        existing_ids.add(property_id)
                         leads_count += 1
                         print(f"🔄 Leads processed: {leads_count}/{max_leads}")
-                        time.sleep(random.uniform(1, 3))  # Respectful delay
+                        time.sleep(random.uniform(2, 5))  # Respectful delay
             
             # Find next page
             next_page = soup.find('a', {'data-testid': 'gsl.uilib.Paging.nextButton'})
-            current_url = f"{BASE_URL.rstrip('/')}{next_page['href']}" if next_page else None
-            page_number += 1
-            
+            if next_page:
+                current_url = f"{BASE_URL.rstrip('/')}{next_page['href']}"
+                page_number += 1
+            else:
+                print("🚪 No more pages available. Restarting scraper...")
+                return scrape_all_pages()  # Restart the scraper if no next page
+
         except requests.exceptions.RequestException as e:
             print(f"❌ Page {page_number} failed: {e}. Moving to the next page.")
             page_number += 1

@@ -67,7 +67,7 @@ def get_today_new_leads():
         start_of_day = datetime(now.year, now.month, now.day, tzinfo=timezone.utc)
         end_of_day = start_of_day.replace(hour=23, minute=59, second=59)
 
-        today_new_leads = list(leads_collection.find({
+        today_new_leads = list(properties_collection.find({
             "expiration_date": {
                 "$gte": start_of_day + timedelta(days=7),
                 "$lte": end_of_day + timedelta(days=7)

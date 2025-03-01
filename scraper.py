@@ -144,17 +144,6 @@ def save_lead(property_data):
 
     except Exception as e:
         print(f"❌ Database error: {e}")
-
-import concurrent.futures
-
-# Adjusted function to scrape details in parallel
-def scrape_detail_pages_parallel(detail_urls):
-    """Scrapes multiple property detail pages in parallel using threads."""
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:  # Adjust max_workers as needed
-        results = list(executor.map(scrape_detail_page, detail_urls))
-    return results
-
-
 # Main scraping logic
 def scrape_all_pages():
     existing_ids = {prop['property_id'] for prop in properties_collection.find({}, {'property_id': 1})}
@@ -162,9 +151,9 @@ def scrape_all_pages():
     page_number = 1
     leads_count = 0
     max_leads = 600
-    max_retries = 3  # Retry scraper if pages are not available
+    consecutive_failures = 0  # Counter for consecutive failures
 
-    while leads_count < max_leads:
+    while current_url and leads_count < max_leads:
         print(f"\n📄 Processing Page {page_number}: {current_url}")
         
         try:
@@ -174,15 +163,6 @@ def scrape_all_pages():
             
             # Extract all property links on the page
             listings = soup.find_all('a', class_='AnnounceCard_announceCardSlider__CaJaL')
-            if not listings:
-                print("⚠️ No listings found. Retrying or restarting scraper...")
-                max_retries -= 1
-                if max_retries == 0:
-                    print("🔄 Restarting scraper due to no available pages...")
-                    return scrape_all_pages()  # Restart the scraper
-                time.sleep(5)  # Wait before retrying
-                continue
-
             for listing in listings:
                 if leads_count >= max_leads:
                     print("🎯 Reached 600 leads. Stopping.")
@@ -206,20 +186,30 @@ def scrape_all_pages():
             
             # Find next page
             next_page = soup.find('a', {'data-testid': 'gsl.uilib.Paging.nextButton'})
-            if next_page:
-                current_url = f"{BASE_URL.rstrip('/')}{next_page['href']}"
-                page_number += 1
-            else:
-                print("🚪 No more pages available. Restarting scraper...")
-                return scrape_all_pages()  # Restart the scraper if no next page
-
+            current_url = f"{BASE_URL.rstrip('/')}{next_page['href']}" if next_page else None
+            page_number += 1
+            
+            # Reset consecutive failures counter on successful page processing
+            consecutive_failures = 0
+            
         except requests.exceptions.RequestException as e:
             print(f"❌ Page {page_number} failed: {e}. Moving to the next page.")
+            consecutive_failures += 1
+            if consecutive_failures >= 10:
+                print("🛑 10 consecutive failures detected. Pausing for 2 minutes...")
+                time.sleep(120)  # Pause for 2 minutes
+                consecutive_failures = 0  # Reset the counter after the pause
+            # Skip to the next page
             page_number += 1
             current_url = f"{LISTING_URL}?page={page_number}"  # Adjust URL for next page
             continue
         except Exception as e:
             print(f"❌ Unexpected error on page {page_number}: {e}. Moving to the next page.")
+            consecutive_failures += 1
+            if consecutive_failures >= 10:
+                print("🛑 10 consecutive failures detected. Pausing for 2 minutes...")
+                time.sleep(120)  # Pause for 2 minutes
+                consecutive_failures = 0  # Reset the counter after the pause
             page_number += 1
             current_url = f"{LISTING_URL}?page={page_number}"  # Adjust URL for next page
             continue
